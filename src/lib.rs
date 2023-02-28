@@ -43,7 +43,7 @@ fn read_dir_recur(dir: &Path) -> Vec<PathBuf> {
         }
     }
 
-    recur_files
+    return recur_files;
 }
 
 fn read_dir(dir: &Path) -> Vec<PathBuf> {
@@ -67,7 +67,7 @@ fn have_extension(file_path: &Path) -> bool {
     }
 }
 
-fn rename_file(file: &Path, salt: &String) {
+fn salt_file(file: &Path, salt: &String) -> String {
     let full_name = file.file_name().unwrap().to_string_lossy().to_string();
     let mut final_name = String::from(".");
 
@@ -85,7 +85,11 @@ fn rename_file(file: &Path, salt: &String) {
     }
 
     final_name = format!("{back_path}{final_name}");
+    final_name
+}
 
+fn rename_file(file: &Path, salt: &String) {
+    let final_name = salt_file(file, salt);
     rename(file, final_name).expect("error renaming the file");
 }
 
@@ -122,5 +126,69 @@ impl Config {
         let files = args[2..args.len()].to_vec();
 
         Ok(Config { salt, files })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use rand::{thread_rng, Rng};
+    use std::env::temp_dir;
+    use std::fs::write;
+    use std::path::{Path, PathBuf};
+
+    const BASE_FILE_NAME: &str = "FILE_";
+
+    fn random_text_generator(length: usize) -> String {
+        let mut rng = thread_rng();
+
+        let char_set = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let char_set_len = char_set.len();
+
+        let rand_text: String = (0..length)
+            .map(|_| {
+                let rand_index = rng.gen_range(0..char_set_len);
+
+                let mut temp_char = String::new();
+
+                for (index, char) in char_set.chars().enumerate() {
+                    if rand_index == index {
+                        temp_char.push(char);
+                    }
+                }
+
+                temp_char
+            })
+            .collect();
+
+        rand_text
+    }
+
+    /*
+
+        fn create_file(dir:&Path, file_name:&String) -> &Path{
+
+            let file = dir.join(file_name);
+
+            write(file.as_path(), "").expect("error writing to file");
+
+            let file = file.as_path();
+
+            file
+
+        }
+
+    */
+
+    #[test]
+    fn test_single_file_with_extension() {
+        let temp_dir = temp_dir();
+
+        let temp_file_name = format!("{}{}", BASE_FILE_NAME, "1");
+
+        //        let temp_file = create_file(&temp_dir, &temp_file_name);
+
+        let rand_name = random_text_generator(15);
+        println!("{rand_name}")
     }
 }
