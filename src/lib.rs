@@ -15,7 +15,7 @@ pub fn run(config: Config) -> Result<bool, String> {
                 FileTypes::File => rename_file(file_path, &salt),
 
                 FileTypes::Dir => {
-                    let dir_content = read_dir_recur(&file_path);
+                    let dir_content = read_directory_recur(&file_path);
 
                     for file in dir_content {
                         rename_file(&file.as_path(), &salt)
@@ -30,15 +30,15 @@ pub fn run(config: Config) -> Result<bool, String> {
     Ok(true)
 }
 
-fn read_dir_recur(dir: &Path) -> Vec<PathBuf> {
+fn read_directory_recur(dir: &Path) -> Vec<PathBuf> {
     let mut recur_files: Vec<PathBuf> = Vec::new();
-    let files = read_dir(dir);
+    let files = read_directory(dir);
 
     for file in files {
         if file.is_file() {
             recur_files.push(file);
         } else if file.is_dir() {
-            let mut files_in_dir = read_dir_recur(&file);
+            let mut files_in_dir = read_directory_recur(&file);
             recur_files.append(&mut files_in_dir);
         }
     }
@@ -46,7 +46,7 @@ fn read_dir_recur(dir: &Path) -> Vec<PathBuf> {
     return recur_files;
 }
 
-fn read_dir(dir: &Path) -> Vec<PathBuf> {
+fn read_directory(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
 
     let dir_files = dir.read_dir().unwrap();
@@ -132,17 +132,21 @@ impl Config {
 #[cfg(test)]
 mod tests {
 
+    use std::{
+        env::temp_dir,
+        fs::{write},
+        path::{Path,PathBuf}
+    };
     use rand::{thread_rng, Rng};
-    use std::env::temp_dir;
-    use std::fs::write;
-    use std::path::{Path, PathBuf};
+    use crate::read_directory;
+
 
     const BASE_FILE_NAME: &str = "FILE_";
 
     fn random_text_generator(length: usize) -> String {
         let mut rng = thread_rng();
 
-        let char_set = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let char_set = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789";
         let char_set_len = char_set.len();
 
         let rand_text: String = (0..length)
@@ -160,35 +164,33 @@ mod tests {
                 temp_char
             })
             .collect();
-
         rand_text
     }
 
-    /*
 
-        fn create_file(dir:&Path, file_name:&String) -> &Path{
-
-            let file = dir.join(file_name);
-
-            write(file.as_path(), "").expect("error writing to file");
-
-            let file = file.as_path();
-
-            file
-
-        }
-
-    */
 
     #[test]
     fn test_single_file_with_extension() {
         let temp_dir = temp_dir();
 
-        let temp_file_name = format!("{}{}", BASE_FILE_NAME, "1");
-
+        
         //        let temp_file = create_file(&temp_dir, &temp_file_name);
+        
+        let rand_name = random_text_generator(32);
+        let temp_file_name = format!("{}{}.txt", BASE_FILE_NAME, rand_name);
+        println!("{temp_file_name}");
 
-        let rand_name = random_text_generator(15);
-        println!("{rand_name}")
+        let tempfile = temp_dir.join(temp_file_name);
+
+        write(&tempfile, random_text_generator(256));
+
+        for file in read_directory(&temp_dir) {
+            println!{"{:?}",file.file_name()};
+        }
+
+
+        assert!(tempfile.exists())
+
+
     }
 }
