@@ -4,23 +4,17 @@ use std::path::{Path, PathBuf};
 pub fn run(config: Config) -> Result<bool, String> {
     // filter the input
     let salt = config.salt;
-    let files = config.files;
+    let targets = config.files;
 
     // filter earch file in the selected files
-    for file in files {
-        let file_path = Path::new(&file);
+    for target in targets {
+        let file_path = Path::new(&target);
+        let mut file = File::from(&target);
 
-        if file_path.exists() {
-            match get_file_type(file_path).unwrap() {
-                FileTypes::File => rename_file(file_path, &salt),
-
-                FileTypes::Dir => {
-                    let dir_content = read_directory_recur(&file_path);
-
-                    for file in dir_content {
-                        rename_file(&file.as_path(), &salt)
-                    }
-                }
+        if file.exists() {
+            match file.get_file_type().unwrap() {
+                FileTypes::File => file.add_salt(&salt),
+                FileTypes::Dir => (),
                 FileTypes::Symlink => (),
             }
         } else {
@@ -30,13 +24,13 @@ pub fn run(config: Config) -> Result<bool, String> {
     Ok(true)
 }
 
-fn read_directory_recur(dir: &Path) -> Vec<PathBuf> {
-    let mut recur_files: Vec<PathBuf> = Vec::new();
+fn read_directory_recur(dir: &Path) -> Vec<File> {
+    let mut recur_files: Vec<File> = Vec::new();
     let files = read_directory(dir);
 
     for file in files {
         if file.is_file() {
-            recur_files.push(file);
+            recur_files.push(File::from(file.to_string_lossy().to_string().as_str()));
         } else if file.is_dir() {
             let mut files_in_dir = read_directory_recur(&file);
             recur_files.append(&mut files_in_dir);
@@ -46,7 +40,7 @@ fn read_directory_recur(dir: &Path) -> Vec<PathBuf> {
     return recur_files;
 }
 
-fn read_directory(dir: &Path) -> Vec<PathBuf> {
+pub fn read_directory(dir: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
 
     let dir_files = dir.read_dir().unwrap();
@@ -58,50 +52,111 @@ fn read_directory(dir: &Path) -> Vec<PathBuf> {
     return files;
 }
 
-fn have_extension(file_path: &Path) -> bool {
-    let file_extension = file_path.extension();
-
-    match file_extension {
-        Some(_) => true,
-        None => false,
-    }
+pub struct File {
+    path: PathBuf,
+    name: String,
+    extension: Extension,
 }
 
-fn salt_file(file: &Path, salt: &String) -> String {
-    let full_name = file.file_name().unwrap().to_string_lossy().to_string();
-    let mut final_name = String::from(".");
+#[derive(Clone)]
+pub enum Extension {
+    Some(String),
+    None,
+}
 
-    let len_of_file = full_name.len();
-    let full_path = file.to_string_lossy().to_string();
-    let back_path = file.to_string_lossy()[0..full_path.len() - len_of_file].to_string();
-
-    if have_extension(file) {
-        let name = file.file_stem().unwrap().to_string_lossy().to_string();
-        let extension = file.extension().unwrap().to_string_lossy().to_string();
-
-        final_name.push_str(format!("{}{}.{}", name, salt, extension).as_str());
-    } else {
-        final_name.push_str(format!("{}{}", full_name, salt).as_str())
+impl File {
+    pub fn from(file: &str) -> File {
+        let file_path = PathBuf::from(file);
+        File::from_path_buff(file_path)
     }
 
-    final_name = format!("{back_path}{final_name}");
-    final_name
-}
+    pub fn from_path_buff(file: PathBuf) -> File {
+        let file_path = file;
 
-fn rename_file(file: &Path, salt: &String) {
-    let final_name = salt_file(file, salt);
-    rename(file, final_name).expect("error renaming the file");
-}
+        let file_name = file_path
+            .file_name()
+            .expect("Error getting file name")
+            .to_string_lossy()
+            .to_string();
+        let file_extension = match file_path.extension() {
+            Some(extension) => Extension::Some(extension.to_string_lossy().to_string()),
+            None => Extension::None,
+        };
 
-fn get_file_type(file: &Path) -> Option<FileTypes> {
-    if file.is_file() {
-        return Some(FileTypes::File);
-    } else if file.is_dir() {
-        return Some(FileTypes::Dir);
-    } else if file.is_symlink() {
-        return Some(FileTypes::Symlink);
-    } else {
-        return None;
+        File {
+            path: file_path,
+            name: file_name,
+            extension: file_extension,
+        }
+    }
+
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn get_pathbuff(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    pub fn get_extension(&self) -> Extension {
+        self.extension.clone()
+    }
+
+    pub fn have_extension(&self) -> bool {
+        let file_extension = &self.extension;
+        match file_extension {
+            Extension::Some(_) => true,
+            Extension::None => false,
+        }
+    }
+
+    fn salt(&self, salt: &String) -> String {
+        let full_name = &self.name;
+        let mut final_name = String::new();
+
+        let len_of_file = full_name.len();
+        let full_path = self.path.to_string_lossy().to_string();
+        let back_path = full_path[0..full_path.len() - len_of_file].to_string();
+
+        if self.have_extension() {
+            let name = self.path.file_stem().unwrap().to_string_lossy().to_string();
+            let extension = self.path.extension().unwrap().to_string_lossy().to_string();
+
+            final_name.push_str(format!("{}{}.{}", name, salt, extension).as_str());
+        } else {
+            final_name.push_str(format!("{}{}", full_name, salt).as_str())
+        }
+
+        final_name = format!("{back_path}{final_name}");
+        final_name
+    }
+
+    pub fn add_salt(&mut self, salt: &String) {
+        let final_name = self.salt(salt);
+        let backpath = self.path.parent().unwrap().to_str().unwrap();
+        rename(&self.path, &final_name).expect("error renaming the file");
+
+        let new_file = File::from(format!("{final_name}").as_str());
+
+        self.name = new_file.name;
+        self.path = new_file.path;
+        self.extension = new_file.extension;
+    }
+
+    fn get_file_type(&self) -> Option<FileTypes> {
+        if self.path.is_file() {
+            return Some(FileTypes::File);
+        } else if self.path.is_dir() {
+            return Some(FileTypes::Dir);
+        } else if self.path.is_symlink() {
+            return Some(FileTypes::Symlink);
+        } else {
+            return None;
+        }
+    }
+
+    fn exists(&self) -> bool {
+        self.path.exists()
     }
 }
 
@@ -126,71 +181,5 @@ impl Config {
         let files = args[2..args.len()].to_vec();
 
         Ok(Config { salt, files })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use std::{
-        env::temp_dir,
-        fs::{write},
-        path::{Path,PathBuf}
-    };
-    use rand::{thread_rng, Rng};
-    use crate::read_directory;
-
-
-    const BASE_FILE_NAME: &str = "FILE_";
-
-    fn random_text_generator(length: usize) -> String {
-        let mut rng = thread_rng();
-
-        let char_set = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789";
-        let char_set_len = char_set.len();
-
-        let rand_text: String = (0..length)
-            .map(|_| {
-                let rand_index = rng.gen_range(0..char_set_len);
-
-                let mut temp_char = String::new();
-
-                for (index, char) in char_set.chars().enumerate() {
-                    if rand_index == index {
-                        temp_char.push(char);
-                    }
-                }
-
-                temp_char
-            })
-            .collect();
-        rand_text
-    }
-
-
-
-    #[test]
-    fn test_single_file_with_extension() {
-        let temp_dir = temp_dir();
-
-        
-        //        let temp_file = create_file(&temp_dir, &temp_file_name);
-        
-        let rand_name = random_text_generator(32);
-        let temp_file_name = format!("{}{}.txt", BASE_FILE_NAME, rand_name);
-        println!("{temp_file_name}");
-
-        let tempfile = temp_dir.join(temp_file_name);
-
-        write(&tempfile, random_text_generator(256));
-
-        for file in read_directory(&temp_dir) {
-            println!{"{:?}",file.file_name()};
-        }
-
-
-        assert!(tempfile.exists())
-
-
     }
 }
